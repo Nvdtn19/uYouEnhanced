@@ -17,6 +17,104 @@ NSBundle *uYouPlusBundle() {
 NSBundle *tweakBundle = uYouPlusBundle();
 //
 
+// Notifications Tab appearance
+UIImage *resizeImage(UIImage *image, CGSize newSize) {
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 0.0);
+    [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *resizedImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return resizedImage;
+}
+
+static int getNotificationIconStyle() {
+    return [[NSUserDefaults standardUserDefaults] integerForKey:@"notificationIconStyle"];
+}
+
+// Notifications Tab - @arichornlover & @dayanch96
+%group gShowNotificationsTab
+%hook YTAppPivotBarItemStyle
+- (UIImage *)pivotBarItemIconImageWithIconType:(int)type color:(UIColor *)color useNewIcons:(BOOL)isNew selected:(BOOL)isSelected {
+    NSString *imageName;
+    UIColor *iconColor;
+    switch (getNotificationIconStyle()) {
+        case 1:  // Thin outline style (2020+)
+            imageName = isSelected ? @"notifications_selected" : @"notifications_24pt";
+            iconColor = [%c(YTColor) white1];
+            break;
+        case 2:  // Filled style (2018+)
+            imageName = @"notifications_selected";
+            iconColor = isSelected ? [%c(YTColor) white1] : [UIColor grayColor];
+            break;
+        case 3:  // Inbox style (2014+)
+            imageName = @"inbox_selected";
+            iconColor = isSelected ? [%c(YTColor) white1] : [UIColor grayColor];
+            break;
+        default:  // Default style
+            imageName = isSelected ? @"notifications_selected" : @"notifications_unselected";
+            iconColor = [%c(YTColor) white1];
+            break;
+    }
+    NSString *imagePath = [tweakBundle pathForResource:imageName ofType:@"png" inDirectory:@"UI"];
+    UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
+    CGSize newSize = CGSizeMake(24, 24);
+    image = resizeImage(image, newSize);
+    image = [%c(QTMIcon) tintImage:image color:iconColor];
+    return type == YT_NOTIFICATIONS ? image : %orig;
+}
+%end
+%hook YTPivotBarView
+- (void)setRenderer:(YTIPivotBarRenderer *)renderer {
+    @try {
+	YTIBrowseEndpoint *endPoint = [[%c(YTIBrowseEndpoint) alloc] init];
+	[endPoint setBrowseId:@"FEnotifications_inbox"];
+	YTICommand *command = [[%c(YTICommand) alloc] init];
+	[command setBrowseEndpoint:endPoint];
+
+	YTIPivotBarItemRenderer *itemBar = [[%c(YTIPivotBarItemRenderer) alloc] init];
+	[itemBar setPivotIdentifier:@"FEnotifications_inbox"];
+	YTIIcon *icon = [itemBar icon];
+	[icon setIconType:YT_NOTIFICATIONS];
+	[itemBar setNavigationEndpoint:command];
+
+	YTIFormattedString *formatString;
+	if (getNotificationIconStyle() == 3) {
+		formatString = [%c(YTIFormattedString) formattedStringWithString:@"Inbox"];
+	} else {
+		formatString = [%c(YTIFormattedString) formattedStringWithString:@"Notifications"];
+	}
+	[itemBar setTitle:formatString];
+
+	YTIPivotBarSupportedRenderers *barSupport = [[%c(YTIPivotBarSupportedRenderers) alloc] init];
+	[barSupport setPivotBarItemRenderer:itemBar];
+
+        [renderer.itemsArray addObject:barSupport];
+    } @catch (NSException *exception) {
+        NSLog(@"Error setting renderer: %@", exception.reason);
+    }
+    %orig(renderer);
+}
+%end
+%hook YTBrowseViewController
+- (void)viewDidLoad {
+    %orig;
+    @try {
+        YTICommand *navEndpoint = [self valueForKey:@"_navEndpoint"];
+        if ([navEndpoint.browseEndpoint.browseId isEqualToString:@"FEnotifications_inbox"]) {
+            UIViewController *notificationsViewController = [[UIViewController alloc] init];
+            [self addChildViewController:notificationsViewController];
+            // FIXME: View issues
+            [notificationsViewController.view setFrame:CGRectMake(0.0f, 0.0f, self.view.frame.size.width, self.view.frame.size.height)];
+            [self.view addSubview:notificationsViewController.view];
+            [self.view endEditing:YES];
+            [notificationsViewController didMoveToParentViewController:self];
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Cannot show notifications view controller: %@", exception.reason);
+    }
+}
+%end
+%end
+
 // LEGACY VERSION ⚠️
 // Hide the (Connect / Thanks / Save / Report) Buttons under the Video Player - 17.33.2 and up - @arichornlover (inspired by @PoomSmart's version)
 %hook _ASDisplayView
@@ -175,7 +273,7 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 }
 %end
 
-// Fixes uYou crash when trying to play video (qnblackcat/#1422) - @Dayanch96
+// Fixes uYou crash when trying to play video (#1422)
 %hook YTPlayerOverlayManager
 %property (nonatomic, assign) float currentPlaybackRate;
 
@@ -243,7 +341,7 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 %end
 
 %hook YTDataUtils
-+ (id)spamSignalsDictionary { return @{}; }
++ (id)spamSignalsDictionary { return @{ @"ms": @"" }; }
 + (id)spamSignalsDictionaryWithoutIDFA { return @{}; }
 %end
 
@@ -299,7 +397,7 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 + (id)spamSignalsDictionaryWithoutIDFA { return @{}; }
 %end
 %hook YTDataUtils
-+ (id)spamSignalsDictionary { return @{}; }
++ (id)spamSignalsDictionary { return @{ @"ms": @"" }; }
 + (id)spamSignalsDictionaryWithoutIDFA { return @{}; }
 %end
 %hook YTAdsInnerTubeContextDecorator
@@ -314,7 +412,7 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 %hook MDXSession
 - (void)adPlaying:(id)ad {}
 %end
-%hook YTReelInfinitePlaybackDataSource
+%hook YTReelDataSource
 - (YTReelModel *)makeContentModelForEntry:(id)entry {
     YTReelModel *model = %orig;
     if ([model respondsToSelector:@selector(videoType)] && model.videoType == 3)
@@ -322,28 +420,41 @@ YTMainAppControlsOverlayView *controlsOverlayView;
     return model;
 }
 %end
+%hook YTReelInfinitePlaybackDataSource
+- (YTReelModel *)makeContentModelForEntry:(id)entry {
+    YTReelModel *model = %orig;
+    if ([model respondsToSelector:@selector(videoType)] && model.videoType == 3)
+        return nil;
+    return model;
+}
+- (void)setReels:(NSMutableOrderedSet <YTReelModel *> *)reels {
+    [reels removeObjectsAtIndexes:[reels indexesOfObjectsPassingTest:^BOOL(YTReelModel *obj, NSUInteger idx, BOOL *stop) {
+        return [obj respondsToSelector:@selector(videoType)] ? obj.videoType == 3 : NO;
+    }]];
+    %orig;
+}
+%end
 NSString *getAdString(NSString *description) {
-    for (NSString *str in @[
-            @"brand_promo",
-            @"carousel_footered_layout",
-            @"carousel_headered_layout",
-            @"eml.expandable_metadata",
-            @"feed_ad_metadata",
-            @"full_width_portrait_image_layout",
-            @"full_width_square_image_layout",
-            @"landscape_image_wide_button_layout",
-            @"post_shelf",
-            @"product_carousel",
-            @"product_engagement_panel",
-            @"product_item",
-            @"shopping_carousel",
-            @"shopping_item_card_list",
-            @"statement_banner",
-            @"square_image_layout",
-            @"text_image_button_layout",
-            @"text_search_ad",
-            @"video_display_full_layout",
-            @"video_display_full_buttoned_layout"
+    for (NSString *str in @[        @"brand_promo",
+        @"carousel_footered_layout",
+        @"carousel_headered_layout",
+        @"eml.expandable_metadata",
+        @"feed_ad_metadata",
+        @"full_width_portrait_image_layout",
+        @"full_width_square_image_layout",
+        @"landscape_image_wide_button_layout",
+        @"post_shelf",
+        @"product_carousel",
+        @"product_engagement_panel",
+        @"product_item",
+        @"shopping_carousel",
+        @"shopping_item_card_list",
+        @"statement_banner",
+        @"square_image_layout",
+        @"text_image_button_layout",
+        @"text_search_ad",
+        @"video_display_full_layout",
+        @"video_display_full_buttoned_layout"
     ]) 
         if ([description containsString:str]) return str;
 
@@ -365,6 +476,16 @@ static BOOL isAdRenderer(YTIElementRenderer *elementRenderer, int kind) {
 static NSMutableArray <YTIItemSectionRenderer *> *filteredArray(NSArray <YTIItemSectionRenderer *> *array) {
     NSMutableArray <YTIItemSectionRenderer *> *newArray = [array mutableCopy];
     NSIndexSet *removeIndexes = [newArray indexesOfObjectsPassingTest:^BOOL(YTIItemSectionRenderer *sectionRenderer, NSUInteger idx, BOOL *stop) {
+        if ([sectionRenderer isKindOfClass:%c(YTIShelfRenderer)]) {
+            YTIShelfSupportedRenderers *content = ((YTIShelfRenderer *)sectionRenderer).content;
+            YTIHorizontalListRenderer *horizontalListRenderer = content.horizontalListRenderer;
+            NSMutableArray <YTIHorizontalListSupportedRenderers *> *itemsArray = horizontalListRenderer.itemsArray;
+            NSIndexSet *removeItemsArrayIndexes = [itemsArray indexesOfObjectsPassingTest:^BOOL(YTIHorizontalListSupportedRenderers *horizontalListSupportedRenderers, NSUInteger idx2, BOOL *stop2) {
+                YTIElementRenderer *elementRenderer = horizontalListSupportedRenderers.elementRenderer;
+                return isAdRenderer(elementRenderer, 4);
+            }];
+            [itemsArray removeObjectsAtIndexes:removeItemsArrayIndexes];
+        }
         if (![sectionRenderer isKindOfClass:%c(YTIItemSectionRenderer)])
             return NO;
         NSMutableArray <YTIItemSectionSupportedRenderers *> *contentsArray = sectionRenderer.contentsArray;
@@ -705,7 +826,7 @@ static NSMutableArray <YTIItemSectionRenderer *> *filteredArray(NSArray <YTIItem
 %end
 
 // Disable animated YouTube Logo - @bhackel
-%hook YTHeaderLogoController
+%hook YTHeaderLogoControllerImpl // originally was "YTHeaderLogoController"
 - (void)configureYoodleNitrateController {
     if (IS_ENABLED(kDisableAnimatedYouTubeLogo)) {
         return;
@@ -1429,7 +1550,7 @@ static int contrastMode() {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"hideShortsCells"]) {
         NSString *description = [self description];
         
-        BOOL hasShorts = ([description containsString:@"shorts_shelf"] || [description containsString:@"shorts_video_cell"] || [description containsString:@"6Shorts"]) && ![description containsString:@"history*"];
+        BOOL hasShorts = ([description containsString:@"shorts_shelf"] || [description containsString:@"shorts_video_cell"] || [description containsString:@"shorts_grid_shelf_footer"] || [description containsString:@"youtube_shorts_24"]);
         BOOL hasShortsInHistory = [description containsString:@"compact_video.eml"] && [description containsString:@"youtube_shorts_"];
 
         if (hasShorts || hasShortsInHistory) {
@@ -1690,10 +1811,16 @@ static int contrastMode() {
 // %end
 %end
 
-// Remove “Play next in queue” from the menu (@PoomSmart) - qnblackcat/uYouPlus#1138
+// Hide "Play next in queue" - qnblackcat/uYouPlus#1138
 %hook YTMenuItemVisibilityHandler
 - (BOOL)shouldShowServiceItemRenderer:(YTIMenuConditionalServiceItemRenderer *)renderer {
-    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == 251 && renderer.secondaryIcon.iconType == 741 ? NO : %orig;
+    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == YT_QUEUE_PLAY_NEXT ? NO : %orig;
+}
+%end
+
+%hook YTMenuItemVisibilityHandlerImpl
+- (BOOL)shouldShowServiceItemRenderer:(YTIMenuConditionalServiceItemRenderer *)renderer {
+    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == YT_QUEUE_PLAY_NEXT ? NO : %orig;
 }
 %end
 
@@ -1827,6 +1954,9 @@ static int contrastMode() {
     }
     if (IS_ENABLED(kHideChipBar)) {
         %init(gHideChipBar);
+    }
+    if (IS_ENABLED(kShowNotificationsTab)) {
+        %init(gShowNotificationsTab);
     }
     if (IS_ENABLED(kPortraitFullscreen)) {
         %init(gPortraitFullscreen);
