@@ -335,6 +335,10 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 - (BOOL)enableSkippableAd { return YES; }
 %end
 
+%hook YTHotConfig
+- (BOOL)clientInfraClientConfigIosEnableFillingEncodedHacksInnertubeContext { return NO; }
+%end
+
 %hook YTAdShieldUtils
 + (id)spamSignalsDictionary { return @{}; }
 + (id)spamSignalsDictionaryWithoutIDFA { return @{}; }
@@ -391,6 +395,9 @@ YTMainAppControlsOverlayView *controlsOverlayView;
 %hook YTIClientMdxGlobalConfig
 %new(B@:)
 - (BOOL)enableSkippableAd { return YES; }
+%end
+%hook YTHotConfig
+- (BOOL)clientInfraClientConfigIosEnableFillingEncodedHacksInnertubeContext { return NO; }
 %end
 %hook YTAdShieldUtils
 + (id)spamSignalsDictionary { return @{}; }
